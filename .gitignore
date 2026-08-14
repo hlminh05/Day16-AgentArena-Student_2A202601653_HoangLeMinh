@@ -5,6 +5,9 @@ __pycache__/
 .venv/
 venv/
 
+# Local credentials for the real-model practice run. Never commit secrets.
+.env
+
 # Test + tooling caches
 .pytest_cache/
 .mypy_cache/

@@ -91,4 +91,61 @@ class Critic(Middleware):
         #     claims = [], citations = [], và viết lại "answer" nói rõ là
         #     không đủ căn cứ.
         #  6. Cập nhật report["citations"] cho khớp với claims còn lại.
-        return report  # <- mặc định KHÔNG LÀM GÌ: agent vẫn chạy được
+        claims = report.get("claims")
+        if not isinstance(claims, list) or not claims:
+            return report
+
+        observed = ctx.observed_text
+        kept = []
+        split_claim = False
+        for claim in claims:
+            if not isinstance(claim, dict):
+                continue
+            text = claim.get("text")
+            if isinstance(text, str) and text and text in observed:
+                kept.append(claim)
+                continue
+
+            if not isinstance(text, str):
+                continue
+            for offset in range(len(text)):
+                if not text.startswith(" và ", offset):
+                    continue
+                left, right = text[:offset].rstrip(), text[offset + 4 :].lstrip()
+                sources = []
+                for part in (left, right):
+                    source = next(
+                        (
+                            doc
+                            for doc in ctx.corpus.docs
+                            if doc.body in observed
+                            and any(part in line for line in doc.body.splitlines())
+                        ),
+                        None,
+                    )
+                    sources.append(source)
+                if left and right and all(sources) and sources[0].doc_id != sources[1].doc_id:
+                    kept.extend(
+                        {**claim, "text": part, "doc_id": source.doc_id}
+                        for part, source in zip((left, right), sources)
+                    )
+                    split_claim = True
+                    break
+
+        report["claims"] = kept
+        report["citations"] = sorted(
+            {
+                claim["doc_id"]
+                for claim in kept
+                if isinstance(claim.get("doc_id"), str) and claim["doc_id"]
+            }
+        )
+        if split_claim:
+            report["abstain"] = True
+        if not kept:
+            report.update(
+                answer="Không đủ bằng chứng đáng tin cậy để kết luận.",
+                abstain=True,
+                citations=[],
+            )
+        return report
